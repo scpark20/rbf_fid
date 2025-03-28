@@ -10,7 +10,7 @@ order=3
 type='data_prediction'
 order=3
 
-for steps in 25 15 10 5; do
+for steps in 5 10 15 25; do
     # 실험 결과를 저장할 디렉토리(workdir)
     workdir="/data/experiments_dpm-solver/${data}/${sampleMethod}_order${order}_${steps}_${type}"
 
