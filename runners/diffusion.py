@@ -536,7 +536,7 @@ class Diffusion(object):
                     config.data.image_size)
                 x = torch.tensor(x,
                     device=self.device,
-                )
+                ).float()
 
                 if self.config.model.is_upsampling:
                     base_samples = next(base_samples_total)
