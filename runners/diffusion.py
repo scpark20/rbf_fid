@@ -530,11 +530,11 @@ class Diffusion(object):
                 # start.record()
 
                 n = config.sampling.batch_size
-                x = torch.randn(
-                    n,
+                x = np.random.randn(n,
                     config.data.channels,
                     config.data.image_size,
-                    config.data.image_size,
+                    config.data.image_size)
+                x = torch.tensor(x,
                     device=self.device,
                 )
 
