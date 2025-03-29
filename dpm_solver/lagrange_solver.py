@@ -223,7 +223,7 @@ class LagrangeSolver:
                 x = x_corr
 
         if return_hist:
-            return hist, x_preds, x_corrs
+            return x, hist, x_preds, x_corrs
         else:
             return x
         

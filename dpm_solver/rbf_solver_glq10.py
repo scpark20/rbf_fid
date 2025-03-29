@@ -333,6 +333,8 @@ class RBFSolverGLQ10:
         return log_scales
     
     def sample(self, x, steps, skip_type='logSNR', order=3, log_scale=0.0):
+        # log_scale : predictor, corrector 모든 step에 적용할 log_scale, log_scales가 load안되면 log_scale로 작동
+        # log_scales : predictor, corrector, step별로 적용할 log_scale array, shape : (2, NFE)
         log_scales = self.load_optimal_log_scales(steps, order)
         lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
