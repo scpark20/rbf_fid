@@ -282,6 +282,7 @@ class RBFSolverGLQ10:
                     pred_losses.append(loss)
 
                 optimal_log_scale = log_scales[torch.stack(pred_losses).argmin()]
+                #optimal_log_scale = 1
                 optimal_log_scales_p.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
@@ -300,13 +301,15 @@ class RBFSolverGLQ10:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
                     corr_losses.append(loss)
 
-                plt.figure(figsize=[5, 3])
-                plt.title('corr_losses')
-                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy())
-                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy())
-                #plt.ylim([0, 0.2])
+                plt.figure(figsize=(5, 3))
+                plt.title(f'Step :{i}, Log-scale and Loss')
+                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy(), label='Predictor')
+                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy(), label='Credictor')
+                plt.xlabel('log-scale')  # x축 레이블
+                plt.ylabel('loss')       # y축 레이블
                 plt.grid()
-                plt.show()    
+                plt.legend()
+                plt.show()
 
                 optimal_log_scale = log_scales[torch.stack(corr_losses).argmin()]
                 optimal_log_scales_c.append(optimal_log_scale)
