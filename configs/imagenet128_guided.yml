@@ -34,10 +34,10 @@ model:
     use_new_attention_order: false
     var_type: fixedlarge
     ema: false
-    ckpt_dir: "~/ddpm_ckpt/imagenet128/128x128_diffusion.pt"
+    ckpt_dir: "/data/checkpoints/dpm-solver/128x128_diffusion.pt"
 
 classifier:
-    ckpt_dir: "~/ddpm_ckpt/imagenet128/128x128_classifier.pt"
+    ckpt_dir: "/data/checkpoints/dpm-solver/128x128_classifier.pt"
     image_size: 128
     in_channels: 3
     model_channels: 128
@@ -61,10 +61,10 @@ sampling:
     total_N: 1000
     schedule: "linear"
     time_input_type: '1'
-    batch_size: 500
+    batch_size: 25
     last_only: True
-    fid_stats_dir: "fid_stats/VIRTUAL_imagenet128_labeled.npz"
+    fid_stats_dir: "/data/checkpoints/dpm-solver/VIRTUAL_imagenet128_labeled.npz"
     fid_total_samples: 50000
-    fid_batch_size: 200
+    fid_batch_size: 25
     cond_class: true
     classifier_scale: 1.25

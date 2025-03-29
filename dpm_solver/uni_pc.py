@@ -324,18 +324,18 @@ class UniPC:
                     pred_res = torch.einsum('k,bkchw->bchw', rhos_p, D1s)
                 else:
                     pred_res = 0
-                print('Predictor, p=', order)
+                #print('Predictor, p=', order)
                 x_t = x_t_ - alpha_t * B_h * pred_res
 
             if use_corrector:
-                print('Evaluation')
+                #print('Evaluation')
                 model_t = self.model_fn(x_t, t)
                 if D1s is not None:
                     corr_res = torch.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
                 else:
                     corr_res = 0
                 D1_t = (model_t - model_prev_0)
-                print('Corrector, p=', order+1)
+                #print('Corrector, p=', order+1)
                 x_t = x_t_ - alpha_t * B_h * (corr_res + rhos_c[-1] * D1_t)
         else:
             x_t_ = (
@@ -374,7 +374,7 @@ class UniPC:
             assert method in ['multistep', 'singlestep', 'singlestep_fixed'], "Cannot use adaptive solver when correcting_xt_fn is not None"
         device = x.device
         intermediates = []
-        print('UniPC Sampling Start')
+        #print('UniPC Sampling Start')
         with torch.no_grad():
             if method == 'multistep':
                 assert steps >= order
@@ -392,7 +392,7 @@ class UniPC:
                 
                 # Init the first `order` values by lower order multistep UniPC.
                 for step in range(1, order):
-                    print('Step :', step)
+                    #print('Step :', step)
                     t = timesteps[step]
                     x, model_x = self.multistep_uni_pc_update(x, model_prev_list, t_prev_list, t, step, use_corrector=True)
                     if model_x is None:
@@ -406,7 +406,7 @@ class UniPC:
                     
                 # Compute the remaining values by `order`-th order multistep DPM-Solver.
                 for step in range(order, steps + 1):
-                    print('Step :', step)
+                    #print('Step :', step)
                     t = timesteps[step]
                     if lower_order_final:
                         step_order = min(order, steps + 1 - step)

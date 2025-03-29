@@ -321,33 +321,82 @@ class Diffusion(object):
             # 그 외 기본 모델 (Model) 사용
             model = Model(self.config)
 
-        # (2) 모델을 self.device로 이동
-        model = model.to(self.device)
-        
-        # (3) 체크포인트 로드 (ckpt_dir이 있다면)
-        if hasattr(self.config.model, "ckpt_dir") and self.config.model.ckpt_dir is not None:
-            ckpt_path = self.config.model.ckpt_dir
-            map_location = {"cuda:0": f"cuda:{self.rank}"} if self.rank is not None else None
-            
-            print(f"[prepare_model] Loading ckpt from {ckpt_path} ...")
-            loaded_data = torch.load(ckpt_path, map_location=map_location)
-            
-            # 필요에 따라 strict=True/False
-            model.load_state_dict(loaded_data, strict=True)
-            print("[prepare_model] Checkpoint loaded.")
-            
-            # EMA 사용시
-            if self.config.model.ema:
+        model = model.to(self.rank)
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
+
+        if "ckpt_dir" in self.config.model.__dict__.keys():
+            ckpt_dir = os.path.expanduser(self.config.model.ckpt_dir)
+            states = torch.load(
+                ckpt_dir,
+                map_location=map_location
+            )
+            # states = {f"module.{k}":v for k, v in states.items()}
+            if self.config.model.model_type == 'improved_ddpm' or self.config.model.model_type == 'guided_diffusion':
+                model.load_state_dict(states, strict=True)
+                if self.config.model.use_fp16:
+                    model.convert_to_fp16()
+            else:
+                # TODO: FIXME
+                # model = torch.nn.DataParallel(model)
+                # model.load_state_dict(states[0], strict=True)
+                model.load_state_dict(states, strict=True)
+
+            if self.config.model.ema: # for celeba 64x64 in DDIM
                 ema_helper = EMAHelper(mu=self.config.model.ema_rate)
                 ema_helper.register(model)
-                # (예: 만약 ckpt에 EMA state가 있다면)
-                # ema_helper.load_state_dict(loaded_data[-1])
-                # ema_helper.ema(model)
+                ema_helper.load_state_dict(states[-1])
+                ema_helper.ema(model)
+            else:
+                ema_helper = None
+
+            if self.config.sampling.cond_class and not self.config.model.is_upsampling:
+                classifier = GuidedDiffusion_Classifier(
+                    image_size=self.config.classifier.image_size,
+                    in_channels=self.config.classifier.in_channels,
+                    model_channels=self.config.classifier.model_channels,
+                    out_channels=self.config.classifier.out_channels,
+                    num_res_blocks=self.config.classifier.num_res_blocks,
+                    attention_resolutions=self.config.classifier.attention_resolutions,
+                    channel_mult=self.config.classifier.channel_mult,
+                    use_fp16=self.config.classifier.use_fp16,
+                    num_head_channels=self.config.classifier.num_head_channels,
+                    use_scale_shift_norm=self.config.classifier.use_scale_shift_norm,
+                    resblock_updown=self.config.classifier.resblock_updown,
+                    pool=self.config.classifier.pool
+                )
+                ckpt_dir = os.path.expanduser(self.config.classifier.ckpt_dir)
+                states = torch.load(
+                    ckpt_dir,
+                    map_location=map_location,
+                )
+                # states = {f"module.{k}":v for k, v in states.items()}
+                classifier = classifier.to(self.rank)
+                # classifier = DDP(classifier, device_ids=[self.rank])
+                classifier.load_state_dict(states, strict=True)
+                if self.config.classifier.use_fp16:
+                    classifier.convert_to_fp16()
+                    # classifier.module.convert_to_fp16()
+            else:
+                classifier = None
         else:
-            print("[prepare_model] No ckpt_dir found. Model is randomly initialized.")
+            classifier = None
+            # This used the pretrained DDPM model, see https://github.com/pesser/pytorch_diffusion
+            if self.config.data.dataset == "CIFAR10":
+                name = "cifar10"
+            elif self.config.data.dataset == "LSUN":
+                name = f"lsun_{self.config.data.category}"
+            else:
+                raise ValueError
+            ckpt = get_ckpt_path(f"ema_{name}")
+            if self.rank == 0:
+                print("Loading checkpoint {}".format(ckpt))
+            model.load_state_dict(torch.load(ckpt, map_location=map_location))
+
+        model.eval()
 
         # (4) self.model에 할당
         self.model = model
+        self.classifier = classifier
         print("[prepare_model] Model is ready.")
 
 
@@ -537,7 +586,7 @@ class Diffusion(object):
                 x = torch.tensor(x,
                     device=self.device,
                 ).float()
-
+                
                 if self.config.model.is_upsampling:
                     base_samples = next(base_samples_total)
                 else:
@@ -622,7 +671,7 @@ class Diffusion(object):
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
-    def sample_image(self, x, model, last=True, classifier=None, base_samples=None, target=None, hist=None, exp_num=0, return_hist=False):
+    def sample_image(self, x, model, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False):
         assert last
         try:
             skip = self.args.skip
@@ -1040,7 +1089,7 @@ class Diffusion(object):
                     algorithm_type=self.args.dpm_solver_type,
                     correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
                     scale_dir=self.args.scale_dir,
-                    exp_num=self.args.exp_num
+                    dataset=self.config.data.dataset
                 )
                 if target is not None:
                     x = solver.sample_by_target_matching(
@@ -1052,7 +1101,6 @@ class Diffusion(object):
                         log_scale_min=self.args.log_scale_min,
                         log_scale_max=self.args.log_scale_max,
                         log_scale_num=self.args.log_scale_num,
-                        exp_num=exp_num,
                     )
                 else:    
                     x = solver.sample(

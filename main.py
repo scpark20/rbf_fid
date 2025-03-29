@@ -91,9 +91,6 @@ def parse_args_and_config():
         help="base samples for upsampling, *.npz",
     )
     parser.add_argument(
-        "--exp_num", type=int, default=0, help="experiment number"
-    )
-    parser.add_argument(
         "--timesteps", type=int, default=1000, help="number of steps involved"
     )
     parser.add_argument(

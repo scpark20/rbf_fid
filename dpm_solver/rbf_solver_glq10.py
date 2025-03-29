@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from .sampler import expand_dims
+import matplotlib.pyplot as plt
 
 # Gaussian-Legendre Quadrature
 class RBFSolverGLQ10:
@@ -15,9 +16,9 @@ class RBFSolverGLQ10:
             thresholding_max_val=1.,
             dynamic_thresholding_ratio=0.995,
             scale_dir=None,
-            exp_num=0
+            dataset=None,
     ):
-
+        self.dataset = dataset
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])))
         self.noise_schedule = noise_schedule
         assert algorithm_type in ["data_prediction", "noise_prediction"]
@@ -32,7 +33,6 @@ class RBFSolverGLQ10:
 
         self.predict_x0 = algorithm_type == "data_prediction"
         self.scale_dir = scale_dir
-        self.exp_num = exp_num
 
     def dynamic_thresholding_fn(self, x0, t=None):
         """
@@ -111,16 +111,6 @@ class RBFSolverGLQ10:
             else:    
                 return (torch.exp(-lambda_s) - torch.exp(-lambda_t)) * torch.ones_like(lambdas)
             
-        # 모두 float64로 변환
-        # (1,)
-        lambda_s = lambda_s.to(torch.float64)
-        # (1,)
-        lambda_t = lambda_t.to(torch.float64)
-        # (p,)
-        lambdas  = lambdas.to(torch.float64)
-        # (1,)
-        beta  = beta.to(torch.float64)
-            
         h = lambda_t - lambda_s
         s = 1/(beta*h)
         log_s = torch.log(s)
@@ -176,6 +166,11 @@ class RBFSolverGLQ10:
             return result.float()
                 
     def get_coefficients(self, lambda_s, lambda_t, lambdas, beta):
+        lambda_s = lambda_s.to(torch.float64)
+        lambda_t = lambda_t.to(torch.float64)
+        lambdas = lambdas.to(torch.float64)
+        beta = beta.to(torch.float64)
+
         p = len(lambdas)
         # (p,)
         integral1 = self.get_integral_vector(lambda_s, lambda_t, lambdas, beta)
@@ -188,14 +183,15 @@ class RBFSolverGLQ10:
 
         # (p, p)
         kernel = self.get_kernel_matrix(lambdas, beta)
-        eye = torch.eye(p+1, device=kernel.device)
+        eye = torch.eye(p+1, device=kernel.device).to(torch.float64)
         kernel_aug = 1 - eye
         kernel_aug[:p, :p] = kernel
         # (p,)
+        #coefficients = (integral_aug[None, :] @ torch.linalg.pinv(kernel_aug))[0, :p]    
         #coefficients = (integral_aug[None, :] @ torch.linalg.inv(kernel_aug))[0, :p]    
         coefficients = torch.linalg.solve(kernel_aug, integral_aug)
         coefficients = coefficients[:p]  # (p+1,) 중 앞 p개만 슬라이싱
-        return coefficients
+        return coefficients.float()
     
     def get_next_sample(self, sample, i, hist, signal_rates, noise_rates, lambdas, p, beta, corrector=False):
         '''
@@ -244,7 +240,7 @@ class RBFSolverGLQ10:
         loss = F.mse_loss(target, pred)
         return loss
 
-    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100, exp_num=0):
+    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):
         lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
         # 샘플링할 시간 범위 설정 (t_0, t_T)
@@ -304,6 +300,14 @@ class RBFSolverGLQ10:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
                     corr_losses.append(loss)
 
+                plt.figure(figsize=[5, 3])
+                plt.title('corr_losses')
+                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy())
+                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy())
+                #plt.ylim([0, 0.2])
+                plt.grid()
+                plt.show()    
+
                 optimal_log_scale = log_scales[torch.stack(corr_losses).argmin()]
                 optimal_log_scales_c.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
@@ -316,7 +320,7 @@ class RBFSolverGLQ10:
         optimal_log_scales = np.stack([optimal_log_scales_p, optimal_log_scales_c], axis=0)
 
         if self.scale_dir is not None:
-            save_file = os.path.join(self.scale_dir, f'NFE={steps},p={order},exp_num={exp_num}.npy')
+            save_file = os.path.join(self.scale_dir, f'NFE={steps},p={order},dataset={self.dataset}.npy')
             np.save(save_file, optimal_log_scales)
             print(save_file, ' saved!')
 
@@ -325,7 +329,7 @@ class RBFSolverGLQ10:
 
     def load_optimal_log_scales(self, steps, order):
         try:
-            load_file = os.path.join(self.scale_dir, f'NFE={steps},p={order},exp_num={self.exp_num}.npy')
+            load_file = os.path.join(self.scale_dir, f'NFE={steps},p={order},dataset={self.dataset}.npy')
             log_scales = np.load(load_file)
         except:
             return None
