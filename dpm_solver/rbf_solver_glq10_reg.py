@@ -6,7 +6,8 @@ from .sampler import expand_dims
 import matplotlib.pyplot as plt
 
 # Gaussian-Legendre Quadrature
-class RBFSolverGLQ10:
+# Regularization for matching loss
+class RBFSolverGLQ10Reg:
     def __init__(
             self,
             model_fn,
@@ -17,7 +18,9 @@ class RBFSolverGLQ10:
             dynamic_thresholding_ratio=0.995,
             scale_dir=None,
             dataset=None,
+            reg_weight=0.0,
     ):
+        self.reg_weight = reg_weight
         self.dataset = dataset
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])))
         self.noise_schedule = noise_schedule
@@ -237,7 +240,7 @@ class RBFSolverGLQ10:
             integral = (torch.exp(-lambdas[i]) - torch.exp(-lambdas[i+1]))
         pred = data_sum / integral
 
-        loss = F.mse_loss(target, pred)
+        loss = F.mse_loss(target, pred) + (log_scale ** 2) * self.reg_weight
         return loss
 
     def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):

@@ -6,7 +6,8 @@ from .sampler import expand_dims
 import matplotlib.pyplot as plt
 
 # Gaussian-Legendre Quadrature
-class RBFSolverGLQ10:
+# kernel을 h로 나눈 버전
+class RBFSolverGLQ10H:
     def __init__(
             self,
             model_fn,
@@ -307,8 +308,6 @@ class RBFSolverGLQ10:
                 plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy(), label='Credictor')
                 plt.xlabel('log-scale')  # x축 레이블
                 plt.ylabel('loss')       # y축 레이블
-                plt.ylim([0, 0.01])
-                plt.xlim([-3, 3])
                 plt.grid()
                 plt.legend()
                 plt.show()
