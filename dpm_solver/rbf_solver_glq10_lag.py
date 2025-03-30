@@ -4,9 +4,11 @@ import torch.nn.functional as F
 import numpy as np
 from .sampler import expand_dims
 import matplotlib.pyplot as plt
+import math
 
 # Gaussian-Legendre Quadrature
-class RBFSolverGLQ10:
+# Lagrange for Limit
+class RBFSolverGLQ10Lag:
     def __init__(
             self,
             model_fn,
@@ -17,6 +19,9 @@ class RBFSolverGLQ10:
             dynamic_thresholding_ratio=0.995,
             scale_dir=None,
             dataset=None,
+            log_scale_min=-6.0,
+            log_scale_max=6.0,
+            log_scale_num=100
     ):
         self.dataset = dataset
         self.model = lambda x, t: model_fn(x, t.expand((x.shape[0])))
@@ -33,6 +38,10 @@ class RBFSolverGLQ10:
 
         self.predict_x0 = algorithm_type == "data_prediction"
         self.scale_dir = scale_dir
+        self.log_scale_min = log_scale_min
+        self.log_scale_max = log_scale_max
+        self.log_scale_num = log_scale_num
+        
 
     def dynamic_thresholding_fn(self, x0, t=None):
         """
@@ -210,8 +219,53 @@ class RBFSolverGLQ10:
         #error = torch.mean(abs(integral_aug - kernel_aug @ coefficients)).item()
         coefficients = coefficients[:p]  # (p+1,) 중 앞 p개만 슬라이싱
         return coefficients.float()
+
+    def get_lag_kernel_matrix(self, lambdas):
+        return torch.vander(lambdas, N=len(lambdas), increasing=True)
+
+    def get_lag_integral(self, a: float, b: float, k: int) -> float:
+        if k < 0 or not float(k).is_integer():
+            raise ValueError("k must be a non-negative integer.")
+
+        k = int(k)  # 확실하게 int 변환
+        k_factorial = math.factorial(k)
+
+        def F(x: float) -> float:
+            # F(λ) = -k! * exp(-λ) * Σ_{m=0}^k [λ^m / m!]
+            poly_sum = 0.0
+            for m in range(k+1):
+                poly_sum += (x**m) / math.factorial(m)
+
+            return -k_factorial * math.exp(-x) * poly_sum
+        
+        def G(x: float) -> float:
+            # G(λ) = (-1)^k * k! * exp(λ) * Σ_{m=0}^k [(-λ)^m / m!]
+            poly_sum = 0.0
+            for m in range(k+1):
+                poly_sum += ((-x)**m) / math.factorial(m)
+
+            return (-1)**k * k_factorial * math.exp(x) * poly_sum
+
+        if self.predict_x0:
+            return G(b) - G(a)
+        else:
+            return F(b) - F(a)
+
+    def get_lag_integral_vector(self, lambda_s, lambda_t, lambdas):
+        vector = [self.get_lag_integral(lambda_s, lambda_t, k) for k in range(len(lambdas))]
+        return torch.tensor(vector, device=lambdas.device)
+
+    def get_lag_coefficients(self, lambda_s, lambda_t, lambdas):
+        # (p,)
+        integral = self.get_lag_integral_vector(lambda_s, lambda_t, lambdas)
+        # (p, p)
+        kernel = self.get_lag_kernel_matrix(lambdas)
+        kernel_inv = torch.linalg.inv(kernel)
+        # (p,)
+        coefficients = kernel_inv.T @ integral
+        return coefficients
     
-    def get_next_sample(self, sample, i, hist, signal_rates, noise_rates, lambdas, p, beta, corrector=False):
+    def get_next_sample(self, sample, i, hist, signal_rates, noise_rates, lambdas, p, beta, corrector=False, lagrange=False):
         '''
         sample : (b, c, h, w), tensor
         i : current sampling step, scalar
@@ -228,7 +282,11 @@ class RBFSolverGLQ10:
 
         # for predictor, (c_i, c_i-1, ..., c_i-p+1), shape : (p,),
         # for corrector, (c_i+1, c_i, ..., c_i-p+1), shape : (p+1,)
-        coeffs = self.get_coefficients(lambdas[i], lambdas[i+1], lambda_array, beta)
+        if lagrange:
+            print('Lagrange!!!')
+            coeffs = self.get_lag_coefficients(lambdas[i], lambdas[i+1], lambda_array)
+        else:
+            coeffs = self.get_coefficients(lambdas[i], lambdas[i+1], lambda_array, beta)
 
         # for predictor, (ε_i, ε_i-1, ..., ε_i-p+1), shape : (p,),
         # for corrector, (ε_i+1, λ_i, ..., ε_i-p+1), shape : (p+1,)
@@ -258,7 +316,7 @@ class RBFSolverGLQ10:
         loss = F.mse_loss(target, pred)
         return loss
 
-    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):
+    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3):
         x = x.clone()
         target = target.clone()
         lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
@@ -282,11 +340,10 @@ class RBFSolverGLQ10:
             signal_rates = torch.Tensor([self.noise_schedule.marginal_alpha(t) for t in timesteps])
             noise_rates = torch.Tensor([self.noise_schedule.marginal_std(t) for t in timesteps])
 
-            log_scales = np.linspace(log_scale_min, log_scale_max, log_scale_num)
+            log_scales = np.linspace(self.log_scale_min, self.log_scale_max, self.log_scale_num)
             optimal_log_scales_p = []
             optimal_log_scales_c = []
-            losses = []
-
+            
             hist = [None for _ in range(steps)]
             hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
             
@@ -305,11 +362,13 @@ class RBFSolverGLQ10:
                     pred_losses.append(loss.detach().item())
 
                 pred_losses_list.append(np.stack(pred_losses))
-                optimal_log_scale = log_scales[np.stack(pred_losses).argmin()]
+                argmin = np.stack(pred_losses).argmin()
+                optimal_log_scale = log_scales[argmin]
                 optimal_log_scales_p.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
+                lagrange = (optimal_log_scale >= self.log_scale_max)
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                            p=p, beta=beta, corrector=False)
+                                            p=p, beta=beta, corrector=False, lagrange=lagrange)
                 
                 if i == steps - 1:
                     x = x_pred
@@ -325,11 +384,13 @@ class RBFSolverGLQ10:
                     corr_losses.append(loss.detach().item())
 
                 corr_losses_list.append(np.stack(corr_losses))
-                optimal_log_scale = log_scales[np.stack(corr_losses).argmin()]
+                argmin = np.stack(corr_losses).argmin()
+                optimal_log_scale = log_scales[argmin]
                 optimal_log_scales_c.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
+                lagrange = (optimal_log_scale >= self.log_scale_max)
                 x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                            p=p, beta=beta, corrector=True)
+                                            p=p, beta=beta, corrector=True, lagrange=lagrange)
                 x = x_corr
             
         optimal_log_scales_p = np.array(optimal_log_scales_p)
@@ -390,9 +451,10 @@ class RBFSolverGLQ10:
 
                 # ===predictor===
                 s = log_scale if log_scales is None else log_scales[0, i]
+                lagrange = (s >= self.log_scale_max)
                 beta = steps / (np.exp(s) * abs(lambdas[-1] - lambdas[0]))
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                              p=p, beta=beta, corrector=False)
+                                              p=p, beta=beta, corrector=False, lagrange=lagrange)
                 
                 if i == steps - 1:
                     x = x_pred
@@ -403,9 +465,10 @@ class RBFSolverGLQ10:
                 
                 # ===corrector===
                 s = log_scale if log_scales is None else log_scales[1, i]
+                lagrange = (s >= self.log_scale_max)
                 beta = steps / (np.exp(s) * abs(lambdas[-1] - lambdas[0]))
                 x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                              p=p, beta=beta, corrector=True)
+                                              p=p, beta=beta, corrector=True, lagrange=lagrange)
                 x = x_corr
         # 최종적으로 x를 반환
         return x
