@@ -202,6 +202,7 @@ class Diffusion(object):
 
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
+                print('train randn')
                 e = torch.randn_like(x)
                 b = self.betas
 
@@ -579,6 +580,7 @@ class Diffusion(object):
                 # start.record()
 
                 n = config.sampling.batch_size
+                print('sample_fid randn')
                 x = np.random.randn(n,
                     config.data.channels,
                     config.data.image_size,
@@ -610,7 +612,7 @@ class Diffusion(object):
 
     def sample_sequence(self, model, classifier=None):
         config = self.config
-
+        print('sample_sequence randn')
         x = torch.randn(
             8,
             config.data.channels,
@@ -641,6 +643,7 @@ class Diffusion(object):
                 + torch.sin(alpha * theta) / torch.sin(theta) * z2
             )
 
+        print('sample_interpolation randn')
         z1 = torch.randn(
             1,
             config.data.channels,
@@ -671,7 +674,7 @@ class Diffusion(object):
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
-    def sample_image(self, x, model, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False):
+    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False):
         assert last
         try:
             skip = self.args.skip
@@ -679,7 +682,9 @@ class Diffusion(object):
             skip = 1
 
         classifier_scale = self.config.sampling.classifier_scale if self.args.scale is None else self.args.scale
-        if self.config.sampling.cond_class:
+        if classes is not None:
+            pass
+        elif self.config.sampling.cond_class:
             if self.args.fixed_class is None:
                 classes = torch.randint(low=0, high=self.config.data.num_classes, size=(x.shape[0],)).to(x.device)
             else:
@@ -760,6 +765,8 @@ class Diffusion(object):
                                        'rbfsolverquad',
                                        'rbfsolverglq',
                                        'rbfsolverglq10',
+                                       'rbfsolverglq10grad',
+                                       'rbfsolverglq10reg',
                                        'rbfsolverglq10hist',
                                        'rbfsolverglq10sepbeta',
                                        ]:
@@ -777,6 +784,8 @@ class Diffusion(object):
             from dpm_solver.rbf_solver_quad import RBFSolverQuad
             from dpm_solver.rbf_solver_glq import RBFSolverGLQ
             from dpm_solver.rbf_solver_glq10 import RBFSolverGLQ10
+            from dpm_solver.rbf_solver_glq10_grad import RBFSolverGLQ10Grad
+            from dpm_solver.rbf_solver_glq10_reg import RBFSolverGLQ10Reg
             from dpm_solver.rbf_solver_glq10_hist import RBFSolverGLQ10Hist
             from dpm_solver.rbf_solver_glq10_sepbeta import RBFSolverGLQ10Sepbeta
             from dpm_solver.general_rbf_solver import GeneralRBFSolver
@@ -1110,6 +1119,64 @@ class Diffusion(object):
                         skip_type=self.args.skip_type,
                         log_scale=self.args.log_scale,
                     )                
+
+            if self.args.sample_type in ["rbfsolverglq10grad"]:
+                solver = RBFSolverGLQ10Grad(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                    dataset=self.config.data.dataset
+                )
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        log_scale_min=self.args.log_scale_min,
+                        log_scale_max=self.args.log_scale_max,
+                    )
+                else:    
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        log_scale=self.args.log_scale,
+                    )                        
+
+            if self.args.sample_type in ["rbfsolverglq10reg"]:
+                solver = RBFSolverGLQ10Reg(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                    dataset=self.config.data.dataset,
+                    reg_weight=self.args.reg_weight
+                )
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        log_scale_min=self.args.log_scale_min,
+                        log_scale_max=self.args.log_scale_max,
+                        log_scale_num=self.args.log_scale_num,
+                    )
+                else:    
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        log_scale=self.args.log_scale,
+                    )                        
 
             if self.args.sample_type in ["rbfsolverglq10hist"]:
                 solver = RBFSolverGLQ10Hist(

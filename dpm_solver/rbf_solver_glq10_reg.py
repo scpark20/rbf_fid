@@ -244,7 +244,7 @@ class RBFSolverGLQ10Reg:
         return loss
 
     def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):
-        lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
+        lower_order_final = False  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
         # 샘플링할 시간 범위 설정 (t_0, t_T)
         # diffusion 모델의 경우 t=1(혹은 T)에서 x는 가우시안 노이즈 상태라고 가정.
@@ -268,10 +268,13 @@ class RBFSolverGLQ10Reg:
             log_scales = np.linspace(log_scale_min, log_scale_max, log_scale_num)
             optimal_log_scales_p = []
             optimal_log_scales_c = []
+            losses = []
 
             hist = [None for _ in range(steps)]
             hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
             
+            pred_losses_list = []
+            corr_losses_list = []
             for i in range(0, steps):
                 if lower_order_final:
                     p = min(i+1, steps - i, order)
@@ -284,8 +287,9 @@ class RBFSolverGLQ10Reg:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=False)
                     pred_losses.append(loss)
 
+                pred_losses_list.append(torch.stack(pred_losses))
                 optimal_log_scale = log_scales[torch.stack(pred_losses).argmin()]
-                #optimal_log_scale = 1
+                #optimal_log_scale = 3
                 optimal_log_scales_p.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
@@ -304,18 +308,7 @@ class RBFSolverGLQ10Reg:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
                     corr_losses.append(loss)
 
-                plt.figure(figsize=(5, 3))
-                plt.title(f'Step :{i}, Log-scale and Loss')
-                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy(), label='Predictor')
-                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy(), label='Credictor')
-                plt.xlabel('log-scale')  # x축 레이블
-                plt.ylabel('loss')       # y축 레이블
-                plt.ylim([0, 0.01])
-                plt.xlim([-3, 3])
-                plt.grid()
-                plt.legend()
-                plt.show()
-
+                corr_losses_list.append(torch.stack(corr_losses))
                 optimal_log_scale = log_scales[torch.stack(corr_losses).argmin()]
                 optimal_log_scales_c.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
@@ -333,7 +326,7 @@ class RBFSolverGLQ10Reg:
             print(save_file, ' saved!')
 
         # 최종적으로 x를 반환
-        return x, optimal_log_scales
+        return x, optimal_log_scales, pred_losses_list, corr_losses_list
 
     def load_optimal_log_scales(self, steps, order):
         try:

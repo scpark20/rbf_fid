@@ -6,8 +6,7 @@ from .sampler import expand_dims
 import matplotlib.pyplot as plt
 
 # Gaussian-Legendre Quadrature
-# kernel을 h로 나눈 버전
-class RBFSolverGLQ10H:
+class RBFSolverGLQ10Grad:
     def __init__(
             self,
             model_fn,
@@ -189,8 +188,12 @@ class RBFSolverGLQ10H:
         kernel_aug[:p, :p] = kernel
         # (p,)
         #coefficients = (integral_aug[None, :] @ torch.linalg.pinv(kernel_aug))[0, :p]    
-        #coefficients = (integral_aug[None, :] @ torch.linalg.inv(kernel_aug))[0, :p]    
-        coefficients = torch.linalg.solve(kernel_aug, integral_aug)
+        #coefficients = (integral_aug[None, :] @ torch.linalg.inv(kernel_aug))[0, :p]
+        try:
+            coefficients = torch.linalg.solve(kernel_aug, integral_aug)
+        except:
+            print(beta)
+            print(kernel_aug)
         coefficients = coefficients[:p]  # (p+1,) 중 앞 p개만 슬라이싱
         return coefficients.float()
     
@@ -225,7 +228,7 @@ class RBFSolverGLQ10H:
         return next_sample
     
     def get_loss_by_target_matching(self, i, steps, target, hist, log_scale, lambdas, p, corrector=False):
-        beta = steps / (np.exp(log_scale) * abs(lambdas[-1] - lambdas[0]))
+        beta = steps / (torch.exp(log_scale) * abs(lambdas[-1] - lambdas[0]))
         lambda_array = torch.flip(lambdas[i-p+1:i+(2 if corrector else 1)], dims=[0])
         coeffs = self.get_coefficients(lambdas[i], lambdas[i+1], lambda_array, beta)
         
@@ -238,11 +241,16 @@ class RBFSolverGLQ10H:
             integral = (torch.exp(-lambdas[i]) - torch.exp(-lambdas[i+1]))
         pred = data_sum / integral
 
-        loss = F.mse_loss(target, pred)
+        loss = F.mse_loss(target, pred) + (log_scale**2) * 0.0
         return loss
 
-    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):
-        lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
+    def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, optim_lr=1e-1, optim_steps=100):
+        # x : start noise to sample
+        # target : target image to sample
+        # log_scale_max : absolute value of log scale to search
+        # log_scale_num : # of log scale in [-log_scale, log_scale] to search
+
+        lower_order_final = False  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
         # 샘플링할 시간 범위 설정 (t_0, t_T)
         # diffusion 모델의 경우 t=1(혹은 T)에서 x는 가우시안 노이즈 상태라고 가정.
@@ -252,73 +260,86 @@ class RBFSolverGLQ10H:
 
         # 텐서가 올라갈 디바이스 설정
         device = x.device
-        
-        # 샘플링 과정에서 gradient 계산은 하지 않으므로 no_grad()
+
+        # 실제로 사용할 time step array를 구한다.
+        # timesteps는 길이가 steps+1인 1-D 텐서: [t_T, ..., t_0]
+        timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
+        lambdas = torch.tensor([self.noise_schedule.marginal_lambda(t) for t in timesteps], device=device)
+        signal_rates = torch.tensor([self.noise_schedule.marginal_alpha(t) for t in timesteps], device=device)
+        noise_rates = torch.tensor([self.noise_schedule.marginal_std(t) for t in timesteps], device=device)
+        optimal_log_scales_p = []
+        optimal_log_scales_c = []
+
+        hist = [None for _ in range(steps)]
         with torch.no_grad():
-
-            # 실제로 사용할 time step array를 구한다.
-            # timesteps는 길이가 steps+1인 1-D 텐서: [t_T, ..., t_0]
-            timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
-            lambdas = torch.Tensor([self.noise_schedule.marginal_lambda(t) for t in timesteps])
-            signal_rates = torch.Tensor([self.noise_schedule.marginal_alpha(t) for t in timesteps])
-            noise_rates = torch.Tensor([self.noise_schedule.marginal_std(t) for t in timesteps])
-
-            log_scales = np.linspace(log_scale_min, log_scale_max, log_scale_num)
-            optimal_log_scales_p = []
-            optimal_log_scales_c = []
-
-            hist = [None for _ in range(steps)]
             hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
-            
-            for i in range(0, steps):
-                if lower_order_final:
-                    p = min(i+1, steps - i, order)
-                else:
-                    p = min(i+1, order)
-                    
-                # ===predictor===
-                pred_losses = []
-                for log_scale in log_scales:
-                    loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=False)
-                    pred_losses.append(loss)
-
-                optimal_log_scale = log_scales[torch.stack(pred_losses).argmin()]
-                #optimal_log_scale = 1
-                optimal_log_scales_p.append(optimal_log_scale)
-                beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
-                x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                            p=p, beta=beta, corrector=False)
+        
+        pred_losses_list = []
+        corr_losses_list = []    
+        optimizer = torch.optim.Adam
+        for i in range(0, steps):
+            if lower_order_final:
+                p = min(i+1, steps - i, order)
+            else:
+                p = min(i+1, order)
                 
-                if i == steps - 1:
-                    x = x_pred
+            # ===predictor===
+            # Gradient Descent
+            log_scale_p = torch.nn.Parameter(torch.tensor([0.0], device=device), requires_grad=True)
+            optimizer_p = optimizer([log_scale_p], lr=optim_lr)
+            for _ in range(optim_steps):
+                optimizer_p.zero_grad()
+                loss_p = self.get_loss_by_target_matching(i, steps, target, hist, log_scale_p, lambdas, p, corrector=False)
+                loss_p.backward()
+                # grad에 NaN이 포함되어 있는지 체크
+                if torch.isnan(log_scale_p.grad).any():
+                    #print("NaN gradient detected. Stopping optimization.")
                     break
+                #torch.nn.utils.clip_grad_norm_([log_scale_p], max_norm=1.0)
+                optimizer_p.step()
+                log_scale_p.data.clamp_(log_scale_min, log_scale_max)
+            log_scale_p = log_scale_p.detach()
+            optimal_log_scales_p.append(log_scale_p.item())
+
+            with torch.no_grad():
+                beta = steps / (torch.exp(log_scale_p) * abs(lambdas[-1] - lambdas[0]))
+                x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
+                                                p=p, beta=beta, corrector=False)
                 
+            if i == steps - 1:
+                x = x_pred
+                break
+            
+            with torch.no_grad():
                 # predictor로 구한 x_pred를 이용해서 model_fn 평가
                 hist[i+1] = self.model_fn(x_pred, timesteps[i+1])
-                
-                # ===corrector===
-                corr_losses = []
-                for log_scale in log_scales:
-                    loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
-                    corr_losses.append(loss)
-
-                plt.figure(figsize=(5, 3))
-                plt.title(f'Step :{i}, Log-scale and Loss')
-                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy(), label='Predictor')
-                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy(), label='Credictor')
-                plt.xlabel('log-scale')  # x축 레이블
-                plt.ylabel('loss')       # y축 레이블
-                plt.grid()
-                plt.legend()
-                plt.show()
-
-                optimal_log_scale = log_scales[torch.stack(corr_losses).argmin()]
-                optimal_log_scales_c.append(optimal_log_scale)
-                beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
-                x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                            p=p, beta=beta, corrector=True)
-                x = x_corr
             
+            # ===corrector===
+            # Gradient Descent
+            log_scale_c = torch.nn.Parameter(torch.tensor([0.0], device=device), requires_grad=True)
+            optimizer_c = optimizer([log_scale_c], lr=optim_lr)
+            for optim_step in range(optim_steps):
+                optimizer_c.zero_grad()
+                loss_c = self.get_loss_by_target_matching(i, steps, target, hist, log_scale_c, lambdas, p, corrector=True)
+                loss_c.backward()
+                # grad에 NaN이 포함되어 있는지 체크
+                if torch.isnan(log_scale_c.grad).any():
+                    #print("NaN gradient detected. Stopping optimization.")
+                    break
+                #torch.nn.utils.clip_grad_norm_([log_scale_c], max_norm=1.0)
+                optimizer_c.step()
+                log_scale_c.data.clamp_(log_scale_min, log_scale_max)
+            log_scale_c = log_scale_c.detach()
+
+            optimal_log_scales_c.append(log_scale_c.item())
+            #print('log_scale_c :', log_scale_c.item())
+                
+            with torch.no_grad():
+                beta = steps / (torch.exp(log_scale_c) * abs(lambdas[-1] - lambdas[0]))
+                x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
+                                                p=p, beta=beta, corrector=True)
+                x = x_corr
+
         optimal_log_scales_p = np.array(optimal_log_scales_p)
         optimal_log_scales_c = np.array(optimal_log_scales_c + [0.0])
         optimal_log_scales = np.stack([optimal_log_scales_p, optimal_log_scales_c], axis=0)
@@ -344,7 +365,7 @@ class RBFSolverGLQ10H:
         # log_scale : predictor, corrector 모든 step에 적용할 log_scale, log_scales가 load안되면 log_scale로 작동
         # log_scales : predictor, corrector, step별로 적용할 log_scale array, shape : (2, NFE)
         log_scales = self.load_optimal_log_scales(steps, order)
-        lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
+        lower_order_final = False  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
         # 샘플링할 시간 범위 설정 (t_0, t_T)
         # diffusion 모델의 경우 t=1(혹은 T)에서 x는 가우시안 노이즈 상태라고 가정.

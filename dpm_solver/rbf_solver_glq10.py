@@ -241,6 +241,8 @@ class RBFSolverGLQ10:
         return loss
 
     def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3, log_scale_min=-6.0, log_scale_max=6.0, log_scale_num=100):
+        x = x.clone()
+        target = target.clone()
         lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
 
         # 샘플링할 시간 범위 설정 (t_0, t_T)
@@ -265,10 +267,13 @@ class RBFSolverGLQ10:
             log_scales = np.linspace(log_scale_min, log_scale_max, log_scale_num)
             optimal_log_scales_p = []
             optimal_log_scales_c = []
+            losses = []
 
             hist = [None for _ in range(steps)]
             hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
             
+            pred_losses_list = []
+            corr_losses_list = []
             for i in range(0, steps):
                 if lower_order_final:
                     p = min(i+1, steps - i, order)
@@ -279,10 +284,10 @@ class RBFSolverGLQ10:
                 pred_losses = []
                 for log_scale in log_scales:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=False)
-                    pred_losses.append(loss)
+                    pred_losses.append(loss.detach().item())
 
-                optimal_log_scale = log_scales[torch.stack(pred_losses).argmin()]
-                #optimal_log_scale = 1
+                pred_losses_list.append(np.stack(pred_losses))
+                optimal_log_scale = log_scales[np.stack(pred_losses).argmin()]
                 optimal_log_scales_p.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
@@ -299,21 +304,10 @@ class RBFSolverGLQ10:
                 corr_losses = []
                 for log_scale in log_scales:
                     loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
-                    corr_losses.append(loss)
+                    corr_losses.append(loss.detach().item())
 
-                plt.figure(figsize=(5, 3))
-                plt.title(f'Step :{i}, Log-scale and Loss')
-                plt.plot(log_scales, torch.stack(pred_losses).data.cpu().numpy(), label='Predictor')
-                plt.plot(log_scales, torch.stack(corr_losses).data.cpu().numpy(), label='Credictor')
-                plt.xlabel('log-scale')  # x축 레이블
-                plt.ylabel('loss')       # y축 레이블
-                plt.ylim([0, 0.01])
-                plt.xlim([-3, 3])
-                plt.grid()
-                plt.legend()
-                plt.show()
-
-                optimal_log_scale = log_scales[torch.stack(corr_losses).argmin()]
+                corr_losses_list.append(np.stack(corr_losses))
+                optimal_log_scale = log_scales[np.stack(corr_losses).argmin()]
                 optimal_log_scales_c.append(optimal_log_scale)
                 beta = steps / (np.exp(optimal_log_scale) * abs(lambdas[-1] - lambdas[0]))
                 x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
@@ -330,7 +324,7 @@ class RBFSolverGLQ10:
             print(save_file, ' saved!')
 
         # 최종적으로 x를 반환
-        return x, optimal_log_scales
+        return x, optimal_log_scales, pred_losses_list, corr_losses_list
 
     def load_optimal_log_scales(self, steps, order):
         try:
@@ -342,6 +336,7 @@ class RBFSolverGLQ10:
         return log_scales
     
     def sample(self, x, steps, skip_type='logSNR', order=3, log_scale=0.0):
+        x = x.clone()
         # log_scale : predictor, corrector 모든 step에 적용할 log_scale, log_scales가 load안되면 log_scale로 작동
         # log_scales : predictor, corrector, step별로 적용할 log_scale array, shape : (2, NFE)
         log_scales = self.load_optimal_log_scales(steps, order)

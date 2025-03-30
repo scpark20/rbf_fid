@@ -139,6 +139,12 @@ def parse_args_and_config():
         help="log_scale_num used to control the beta",
     )
     parser.add_argument(
+        "--reg_weight",
+        type=float,
+        default=0.0,
+        help="reg_weight used to control the beta",
+    )
+    parser.add_argument(
         "--gamma",
         type=float,
         default=0.0,
