@@ -466,54 +466,6 @@ class RBFSolverGLQ10LagGrid:
                 x = x_corr
         return x
 
-    def sample(self, x, steps, skip_type='logSNR', order=3, log_scale=0.0):
-        # log_scale : predictor, corrector 모든 step에 적용할 log_scale, log_scales가 load안되면 log_scale로 작동
-        # log_scales : predictor, corrector, step별로 적용할 log_scale array, shape : (2, NFE)
-        log_scales = self.load_optimal_log_scales(steps, order)
-        lower_order_final = True  # 전체 스텝이 매우 작을 때 마지막 스텝에서 차수를 낮춰서 안정성 확보할지.
-
-        t_0 = 1.0 / self.noise_schedule.total_N
-        t_T = self.noise_schedule.T
-        
-        device = x.device
-        with torch.no_grad():
-            timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
-            lambdas = torch.tensor([self.noise_schedule.marginal_lambda(t) for t in timesteps], device=device)
-            signal_rates = torch.tensor([self.noise_schedule.marginal_alpha(t) for t in timesteps], device=device)
-            noise_rates = torch.tensor([self.noise_schedule.marginal_std(t) for t in timesteps], device=device)
-            
-            hist = [None for _ in range(steps)]
-            hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
-            
-            for i in range(0, steps):
-                if lower_order_final:
-                    p = min(i+1, steps - i, order)
-                else:
-                    p = min(i+1, order)
-
-                # ===Predictor===
-                s = log_scale if log_scales is None else log_scales[0, i]
-                lagrange = (s >= self.log_scale_max)
-                beta = steps / (np.exp(s) * abs(lambdas[-1] - lambdas[0]))
-                x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                              p=p, beta=beta, corrector=False, lagrange=lagrange)
-                
-                if i == steps - 1:
-                    x = x_pred
-                    break
-                
-                # ===Evaluation===
-                hist[i+1] = self.model_fn(x_pred, timesteps[i+1])
-                
-                # ===Corrector===
-                s = log_scale if log_scales is None else log_scales[1, i]
-                lagrange = (s >= self.log_scale_max)
-                beta = steps / (np.exp(s) * abs(lambdas[-1] - lambdas[0]))
-                x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas,
-                                              p=p, beta=beta, corrector=True, lagrange=lagrange)
-                x = x_corr
-        return x, hist  
-
     def sample_ecp(self, x, steps, skip_type='logSNR', order=3, log_scale=0.0):
         # log_scale : predictor, corrector 모든 step에 적용할 log_scale, log_scales가 load안되면 log_scale로 작동
         # log_scales : predictor, corrector, step별로 적용할 log_scale array, shape : (2, NFE)

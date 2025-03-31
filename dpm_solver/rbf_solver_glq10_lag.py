@@ -19,8 +19,8 @@ class RBFSolverGLQ10Lag:
             dynamic_thresholding_ratio=0.995,
             scale_dir=None,
             dataset=None,
-            log_scale_min=-6.0,
-            log_scale_max=6.0,
+            log_scale_min=-2.0,
+            log_scale_max=3.0,
             log_scale_num=100
     ):
         self.dataset = dataset
