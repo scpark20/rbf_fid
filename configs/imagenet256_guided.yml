@@ -59,10 +59,10 @@ diffusion:
 
 sampling:
     total_N: 1000
-    batch_size: 50
+    batch_size: 10
     last_only: True
     fid_stats_dir: "/data/checkpoints/dpm-solver/VIRTUAL_imagenet256_labeled.npz"
     fid_total_samples: 10000
-    fid_batch_size: 200
+    fid_batch_size: 10
     cond_class: true
     classifier_scale: 2.5
