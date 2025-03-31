@@ -314,7 +314,7 @@ class RBFSolverGLQ10Lag:
         pred = data_sum / integral
 
         loss = F.mse_loss(target, pred)
-        return loss
+        return loss, coeffs
 
     def sample_by_target_matching(self, x, target, steps, skip_type='logSNR', order=3):
         x = x.clone()
@@ -349,6 +349,8 @@ class RBFSolverGLQ10Lag:
             
             pred_losses_list = []
             corr_losses_list = []
+            pred_coeffs_list = []
+            lag_coeffs_list = []
             for i in range(0, steps):
                 if lower_order_final:
                     p = min(i+1, steps - i, order)
@@ -357,9 +359,16 @@ class RBFSolverGLQ10Lag:
                     
                 # ===predictor===
                 pred_losses = []
+                pred_coeffs = []
                 for log_scale in log_scales:
-                    loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=False)
+                    loss, coeffs = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=False)
                     pred_losses.append(loss.detach().item())
+                    pred_coeffs.append(coeffs)
+
+                
+                lambda_array = torch.flip(lambdas[i-p+1:i+1], dims=[0])
+                coeffs = self.get_lag_coefficients(lambdas[i], lambdas[i+1], lambda_array)
+                lag_coeffs_list.append(coeffs)
 
                 pred_losses_list.append(np.stack(pred_losses))
                 argmin = np.stack(pred_losses).argmin()
@@ -380,7 +389,7 @@ class RBFSolverGLQ10Lag:
                 # ===corrector===
                 corr_losses = []
                 for log_scale in log_scales:
-                    loss = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
+                    loss, _ = self.get_loss_by_target_matching(i, steps, target, hist, log_scale, lambdas, p, corrector=True)
                     corr_losses.append(loss.detach().item())
 
                 corr_losses_list.append(np.stack(corr_losses))
@@ -403,7 +412,7 @@ class RBFSolverGLQ10Lag:
             print(save_file, ' saved!')
 
         # 최종적으로 x를 반환
-        return x, optimal_log_scales, pred_losses_list, corr_losses_list
+        return x, optimal_log_scales, pred_losses_list, corr_losses_list, pred_coeffs_list, lag_coeffs_list
 
     def load_optimal_log_scales(self, steps, order):
         try:
