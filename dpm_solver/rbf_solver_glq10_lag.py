@@ -283,7 +283,7 @@ class RBFSolverGLQ10Lag:
         # for predictor, (c_i, c_i-1, ..., c_i-p+1), shape : (p,),
         # for corrector, (c_i+1, c_i, ..., c_i-p+1), shape : (p+1,)
         if lagrange:
-            print('Lagrange!!!')
+            #print('Lagrange!!!')
             coeffs = self.get_lag_coefficients(lambdas[i], lambdas[i+1], lambda_array)
         else:
             coeffs = self.get_coefficients(lambdas[i], lambdas[i+1], lambda_array, beta)

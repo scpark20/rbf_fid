@@ -8,7 +8,6 @@ method="multistep"
 DIS="logSNR"
 order=3
 type='data_prediction'
-order=3
 
 for steps in 5 10 15 25; do
     # 실험 결과를 저장할 디렉토리(workdir)
@@ -29,6 +28,5 @@ for steps in 5 10 15 25; do
         --dpm_solver_method "${method}" \
         --dpm_solver_type "${type}" \
         --scale_dir "/data/data/rbfsolverglq10lag" \
-        --exp_num 0 \
         --port 12348
 done
