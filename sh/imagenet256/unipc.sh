@@ -3,19 +3,19 @@
 # 원하는 기본 변수 설정
 DEVICES='0'
 data="imagenet256_guided"
-sampleMethod='unipc'   # sample_type in diffusion.py
-type="data_prediction"          # dpm_solver_type in diffusion.py
+sampleMethod='unipc'
+type="data_prediction"
 method="multistep"
-DIS="logSNR"
+DIS="time_uniform"
 order=3
 
 # order 루프(1, 2, 3) 추가
-for scale in 4.0
+for scale in 2.0 4.0
 do
-    for steps in 5 6 8 10
+    for steps in 5 10 15 20
     do
         # 실험 결과를 저장할 디렉토리(workdir)
-        workdir="/data/experiments_dpm-solver/${data}/${sampleMethod}_order${order}_${steps}_${type}_${scale}"
+        workdir="/data/experiments_dpm-solver/${data}/${sampleMethod}_DIS${DIS}_order${order}_${steps}_${type}_${scale}"
         echo "===== Running with order=${order}, steps=${steps}, scale=${scale} ====="
         CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
             --config "${data}.yml" \
