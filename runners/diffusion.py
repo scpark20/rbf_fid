@@ -674,7 +674,7 @@ class Diffusion(object):
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
-    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False):
+    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False, ecp=False):
         assert last
         try:
             skip = self.args.skip
@@ -766,6 +766,7 @@ class Diffusion(object):
                                        'rbfsolverglq',
                                        'rbfsolverglq10',
                                        'rbfsolverglq10lag',
+                                       'rbfsolverglq10laggrid',
                                        'rbfsolverglq10grad',
                                        'rbfsolverglq10reg',
                                        'rbfsolverglq10hist',
@@ -786,6 +787,7 @@ class Diffusion(object):
             from dpm_solver.rbf_solver_glq import RBFSolverGLQ
             from dpm_solver.rbf_solver_glq10 import RBFSolverGLQ10
             from dpm_solver.rbf_solver_glq10_lag import RBFSolverGLQ10Lag
+            from dpm_solver.rbf_solver_glq10_lag_grid import RBFSolverGLQ10LagGrid
             from dpm_solver.rbf_solver_glq10_grad import RBFSolverGLQ10Grad
             from dpm_solver.rbf_solver_glq10_reg import RBFSolverGLQ10Reg
             from dpm_solver.rbf_solver_glq10_hist import RBFSolverGLQ10Hist
@@ -1150,6 +1152,45 @@ class Diffusion(object):
                         skip_type=self.args.skip_type,
                         log_scale=self.args.log_scale,
                     )                        
+
+            if self.args.sample_type in ["rbfsolverglq10laggrid"]:
+                solver = RBFSolverGLQ10LagGrid(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                    dataset=self.config.data.dataset,
+                    log_scale_min=self.args.log_scale_min,
+                    log_scale_max=self.args.log_scale_max,
+                    log_scale_num=self.args.log_scale_num,
+                )
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,  
+                    )
+                else:
+                    if ecp:    
+                        x = solver.sample_ecp(
+                            x,
+                            steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                            order=self.args.dpm_solver_order,
+                            skip_type=self.args.skip_type,
+                            log_scale=self.args.log_scale,
+                        )                                
+                                          
+                    else:
+                        x = solver.sample(
+                            x,
+                            steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                            order=self.args.dpm_solver_order,
+                            skip_type=self.args.skip_type,
+                            log_scale=self.args.log_scale,
+                        )                                
 
             if self.args.sample_type in ["rbfsolverglq10grad"]:
                 solver = RBFSolverGLQ10Grad(

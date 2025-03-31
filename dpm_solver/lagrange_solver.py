@@ -226,6 +226,40 @@ class LagrangeSolver:
             return x, hist, x_preds, x_corrs
         else:
             return x
+
+    def sample_ecp(self, x, steps, skip_type='logSNR', order=3, return_hist=False):
+        lower_order_final = True
+
+        t_0 = 1.0 / self.noise_schedule.total_N
+        t_T = self.noise_schedule.T
+        device = x.device
+        with torch.no_grad():
+
+            timesteps = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=steps, device=device)
+            lambdas = torch.Tensor([self.noise_schedule.marginal_lambda(t) for t in timesteps])
+            signal_rates = torch.Tensor([self.noise_schedule.marginal_alpha(t) for t in timesteps])
+            noise_rates = torch.Tensor([self.noise_schedule.marginal_std(t) for t in timesteps])
+            
+            hist = [None for _ in range(steps)]
+            x_pred = x
+            for i in range(0, steps):
+                if lower_order_final:
+                    p = min(i+1, steps - i, order)
+                else:
+                    p = min(i+1, order)
+
+                # ===Evaluation===
+                hist[i] = self.model_fn(x_pred, timesteps[i])
+                if i > 0:    
+                    # ===Corrector===
+                    x = self.get_next_sample(x, i-1, hist, signal_rates, noise_rates, lambdas, p=p_prev, corrector=True)
+
+                # ===predictor===
+                x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas, p=p, corrector=False)
+                p_prev = p
+
+            x = x_pred    
+        return x
         
     def forward(self, x, steps, predict_x0=False, skip_type='logSNR'):
 
