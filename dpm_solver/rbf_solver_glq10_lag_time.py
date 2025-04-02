@@ -9,7 +9,7 @@ import math
 # Gaussian-Legendre Quadrature
 # Lagrange for Limit
 # modified for time uniform
-class RBFSolverGLQ10Lag:
+class RBFSolverGLQ10LagTime:
     def __init__(
             self,
             model_fn,
