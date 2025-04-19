@@ -582,13 +582,13 @@ class Diffusion(object):
                 # start.record()
 
                 n = config.sampling.batch_size
-                x = np.random.randn(n,
+                x = torch.randn(
+                    n,
                     config.data.channels,
                     config.data.image_size,
-                    config.data.image_size)
-                x = noise = torch.tensor(x,
+                    config.data.image_size,
                     device=self.device,
-                ).float()
+                )
                 
                 if self.config.model.is_upsampling:
                     base_samples = next(base_samples_total)
