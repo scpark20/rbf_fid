@@ -11,7 +11,7 @@ import tqdm
 import torch
 import torch.utils.data as data
 from torch.nn.parallel import DistributedDataParallel as DDP
-#import torch.distributed as dist
+import torch.distributed as dist
 
 from models.diffusion import Model
 from models.improved_ddpm.unet import UNetModel as ImprovedDDPM_Model
@@ -202,7 +202,6 @@ class Diffusion(object):
 
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
-                print('train randn')
                 e = torch.randn_like(x)
                 b = self.betas
 
@@ -400,8 +399,11 @@ class Diffusion(object):
         self.classifier = classifier
         print("[prepare_model] Model is ready.")
 
+    def sample_npz(self):
+        self.sample(npz=True)
+        return
 
-    def sample(self):
+    def sample(self, npz=False):
         if self.config.model.model_type == 'improved_ddpm':
             model = ImprovedDDPM_Model(
                 in_channels=self.config.model.in_channels,
@@ -541,7 +543,7 @@ class Diffusion(object):
 
         if self.args.fid:
             if not os.path.exists(os.path.join(self.args.exp, "fid.npy")):
-                self.sample_fid(model, classifier=classifier)
+                self.sample_fid(model, classifier=classifier, npz=npz)
                 torch.distributed.barrier()
                 if self.rank == 0:
                     print("Begin to compute FID...")
@@ -555,7 +557,7 @@ class Diffusion(object):
         else:
             raise NotImplementedError("Sample procedeure not defined")
 
-    def sample_fid(self, model, classifier=None):
+    def sample_fid(self, model, classifier=None, npz=False):
         config = self.config
         total_n_samples = config.sampling.fid_total_samples
         world_size = torch.cuda.device_count()
@@ -580,12 +582,11 @@ class Diffusion(object):
                 # start.record()
 
                 n = config.sampling.batch_size
-                print('sample_fid randn')
                 x = np.random.randn(n,
                     config.data.channels,
                     config.data.image_size,
                     config.data.image_size)
-                x = torch.tensor(x,
+                x = noise = torch.tensor(x,
                     device=self.device,
                 ).float()
                 
@@ -596,20 +597,32 @@ class Diffusion(object):
 
                 x, classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples)
 
-                # end.record()
-                # torch.cuda.synchronize()
-                # t_list.append(start.elapsed_time(end))
-                x = inverse_data_transform(config, x)
-                for i in range(x.shape[0]):
-                    if classes is None:
-                        path = os.path.join(self.args.image_folder, f"{img_id}.png")
-                    else:
-                        path = os.path.join(self.args.image_folder, f"{img_id}_{int(classes.cpu()[i])}.png")
-                    tvu.save_image(x.cpu()[i], path)
-                    img_id += 1
-        # # Remove the time evaluation of the first batch, because it contains extra initializations
-        # print('time / batch', np.mean(t_list[1:]) / 1000., 'std', np.std(t_list[1:]) / 1000.)
-
+                if npz:
+                    for i in range(len(x)):
+                        if classes is None:
+                            np.savez_compressed(
+                                os.path.join(self.args.image_folder, f"{img_id}.npz"),
+                                noise=noise[i].cpu(),
+                                image=x[i].cpu()
+                            )
+                        else:
+                            np.savez_compressed(
+                                os.path.join(self.args.image_folder, f"{img_id}.npz"),
+                                noise=noise[i].cpu(),
+                                image=x[i].cpu(),
+                                clazz=classes[i].cpu(),
+                            )
+                        img_id += 1
+                else:    
+                    x = inverse_data_transform(config, x)
+                    for i in range(x.shape[0]):
+                        if classes is None:
+                            path = os.path.join(self.args.image_folder, f"{img_id}.png")
+                        else:
+                            path = os.path.join(self.args.image_folder, f"{img_id}_{int(classes.cpu()[i])}.png")
+                        tvu.save_image(x.cpu()[i], path)
+                        img_id += 1
+        
     def sample_sequence(self, model, classifier=None):
         config = self.config
         print('sample_sequence randn')
@@ -674,7 +687,7 @@ class Diffusion(object):
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
-    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, hist=None, return_hist=False, ecp=False):
+    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, number=0):
         assert last
         try:
             skip = self.args.skip
@@ -772,6 +785,7 @@ class Diffusion(object):
                                        'rbfsolverglq10reg',
                                        'rbfsolverglq10hist',
                                        'rbfsolverglq10sepbeta',
+                                       'rbf_ecp_marginal'
                                        ]:
             from dpm_solver.sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
             from dpm_solver.lagrange_solver import LagrangeSolver
@@ -794,6 +808,7 @@ class Diffusion(object):
             from dpm_solver.rbf_solver_glq10_reg import RBFSolverGLQ10Reg
             from dpm_solver.rbf_solver_glq10_hist import RBFSolverGLQ10Hist
             from dpm_solver.rbf_solver_glq10_sepbeta import RBFSolverGLQ10Sepbeta
+            from dpm_solver.rbf_ecp_marginal import RBFSolverECPMarginal
             from dpm_solver.general_rbf_solver import GeneralRBFSolver
             from dpm_solver.general_rbf_solver_grad import GeneralRBFSolverGrad
             from dpm_solver.rbf_solver_cpd_target_lg import RBFSolverCPDTargetLG
@@ -1340,6 +1355,31 @@ class Diffusion(object):
                         log_scale=self.args.log_scale,
                     )                
 
+            if self.args.sample_type in ["rbf_ecp_marginal"]:
+                solver = RBFSolverECPMarginal(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                )
+
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,                       
+                        number=number
+                    )
+                else:    
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                    )                
 
             if self.args.sample_type in ["rbfsolverclosedsweep"]:
                 solver = RBFSolverClosedSweep(
