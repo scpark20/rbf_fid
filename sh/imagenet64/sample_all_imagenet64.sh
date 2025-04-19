@@ -1,5 +1,5 @@
 # 원하는 기본 변수 설정
-DEVICES='0'
+DEVICES='0,1,2,3,4,5,6,7'
 data="imagenet64"
 type="data_prediction"          # dpm_solver_type in diffusion.py
 method="multistep"
@@ -67,7 +67,7 @@ do
 
     # RBF-order4
     sampleMethod='rbf_ecp_marginal'
-    workdir="/data/experiments_dpm-solver/${data}/${sampleMethod}_order4_${steps}_${type}"
+    workdir="samples/64x64_diffusion/${sampleMethod}_order4_${steps}"
     echo "===== Running with method=${sampleMethod}, order=4, steps=${steps} ====="
     CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
         --config "${data}.yml" \
