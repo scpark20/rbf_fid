@@ -789,6 +789,11 @@ class Diffusion(object):
             from dpm_solver.rbf_solver_glq10_hist import RBFSolverGLQ10Hist
             from dpm_solver.rbf_solver_glq10_sepbeta import RBFSolverGLQ10Sepbeta
             from dpm_solver.rbf_ecp_marginal import RBFSolverECPMarginal
+            from dpm_solver.rbf_ecp_marginal_spd import RBFSolverECPMarginalSPD
+            from dpm_solver.rbf_ecp_marginal_lagp import RBFSolverECPMarginalLagP
+            from dpm_solver.rbf_ecp_marginal_lagc import RBFSolverECPMarginalLagC
+            from dpm_solver.rbf_ecp_marginal_to1 import RBFSolverECPMarginalTo1
+            from dpm_solver.rbf_ecp_marginal_to3 import RBFSolverECPMarginalTo3
             from dpm_solver.rbf_marginal import RBFSolverMarginal
             from dpm_solver.rbf_marginal_spd import RBFSolverMarginalSPD
             from dpm_solver.rbf_marginal_lagp import RBFSolverMarginalLagP
@@ -1410,6 +1415,47 @@ class Diffusion(object):
                         order=self.args.dpm_solver_order,
                         skip_type=self.args.skip_type,
                     )                
+
+            if "rbf_ecp_marginal" in self.args.sample_type:
+                if self.args.sample_type == 'rbf_ecp_marginal':
+                    SOLVER = RBFSolverECPMarginal
+                elif self.args.sample_type == 'rbf_ecp_marginal_spd':
+                    SOLVER = RBFSolverECPMarginalSPD
+                elif self.args.sample_type == 'rbf_ecp_marginal_lagp':
+                    SOLVER = RBFSolverECPMarginalLagP
+                elif self.args.sample_type == 'rbf_ecp_marginal_lagc':
+                    SOLVER = RBFSolverECPMarginalLagC
+                elif self.args.sample_type == 'rbf_ecp_marginal_to1':
+                    SOLVER = RBFSolverECPMarginalTo1
+                elif self.args.sample_type == 'rbf_ecp_marginal_to3':
+                    SOLVER = RBFSolverECPMarginalTo3
+                elif self.args.sample_type == 'rbf_ecp_marginal_same':
+                    SOLVER = RBFSolverECPMarginalSame    
+                
+                solver = SOLVER(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                )
+
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,                       
+                        number=number
+                    )
+                else:    
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                    )                    
 
             if self.args.sample_type in ["rbfsolverclosedsweep"]:
                 solver = RBFSolverClosedSweep(
