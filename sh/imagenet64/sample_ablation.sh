@@ -6,8 +6,47 @@ type="data_prediction"          # dpm_solver_type in diffusion.py
 method="multistep"
 DIS="logSNR"
 
-for steps in 5 6 8 10 12 15 20 25 30 35 40
+for steps in 8 10 12 15 20 25 30 35 40
 do
+    # 실험 결과를 저장할 디렉토리(workdir)
+    sampleMethod='lagrangesolver'
+    workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
+    echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
+    CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
+        --config "${data}.yml" \
+        --exp "${workdir}" \
+        --sample \
+        --fid \
+        --timesteps "${steps}" \
+        --eta 0 \
+        --ni \
+        --skip_type "${DIS}" \
+        --sample_type "${sampleMethod}" \
+        --dpm_solver_order "3" \
+        --dpm_solver_method "${method}" \
+        --dpm_solver_type "${type}" \
+        --port 12351     
+
+    # 실험 결과를 저장할 디렉토리(workdir)
+    sampleMethod='rbf_ecp_marginal_same'
+    workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
+    echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
+    CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
+        --config "${data}.yml" \
+        --exp "${workdir}" \
+        --sample \
+        --fid \
+        --timesteps "${steps}" \
+        --scale_dir "/data/guided-diffusion/scale/rbf_ecp_marginal_same_64" \
+        --eta 0 \
+        --ni \
+        --skip_type "${DIS}" \
+        --sample_type "${sampleMethod}" \
+        --dpm_solver_order "3" \
+        --dpm_solver_method "${method}" \
+        --dpm_solver_type "${type}" \
+        --port 12351        
+        
     sampleMethod='rbf_marginal'
     workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
     echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
@@ -84,43 +123,43 @@ do
         --dpm_solver_type "${type}" \
         --port 12351        
 
-    sampleMethod='rbf_marginal_lagp'
-    workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
-    echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
-    CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
-        --config "${data}.yml" \
-        --exp "${workdir}" \
-        --sample \
-        --fid \
-        --timesteps "${steps}" \
-        --scale_dir "/data/guided-diffusion/scale/rbf_marginal_lagp_64" \
-        --eta 0 \
-        --ni \
-        --skip_type "${DIS}" \
-        --sample_type "${sampleMethod}" \
-        --dpm_solver_order "3" \
-        --dpm_solver_method "${method}" \
-        --dpm_solver_type "${type}" \
-        --port 12351        
+    # sampleMethod='rbf_marginal_lagp'
+    # workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
+    # echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
+    # CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
+    #     --config "${data}.yml" \
+    #     --exp "${workdir}" \
+    #     --sample \
+    #     --fid \
+    #     --timesteps "${steps}" \
+    #     --scale_dir "/data/guided-diffusion/scale/rbf_marginal_lagp_64" \
+    #     --eta 0 \
+    #     --ni \
+    #     --skip_type "${DIS}" \
+    #     --sample_type "${sampleMethod}" \
+    #     --dpm_solver_order "3" \
+    #     --dpm_solver_method "${method}" \
+    #     --dpm_solver_type "${type}" \
+    #     --port 12351        
 
-    sampleMethod='rbf_marginal_lagc'
-    workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
-    echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
-    CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
-        --config "${data}.yml" \
-        --exp "${workdir}" \
-        --sample \
-        --fid \
-        --timesteps "${steps}" \
-        --scale_dir "/data/guided-diffusion/scale/rbf_marginal_lagc_64" \
-        --eta 0 \
-        --ni \
-        --skip_type "${DIS}" \
-        --sample_type "${sampleMethod}" \
-        --dpm_solver_order "3" \
-        --dpm_solver_method "${method}" \
-        --dpm_solver_type "${type}" \
-        --port 12351        
+    # sampleMethod='rbf_marginal_lagc'
+    # workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
+    # echo "===== Running with method=${sampleMethod}, order=3, steps=${steps} ====="
+    # CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
+    #     --config "${data}.yml" \
+    #     --exp "${workdir}" \
+    #     --sample \
+    #     --fid \
+    #     --timesteps "${steps}" \
+    #     --scale_dir "/data/guided-diffusion/scale/rbf_marginal_lagc_64" \
+    #     --eta 0 \
+    #     --ni \
+    #     --skip_type "${DIS}" \
+    #     --sample_type "${sampleMethod}" \
+    #     --dpm_solver_order "3" \
+    #     --dpm_solver_method "${method}" \
+    #     --dpm_solver_type "${type}" \
+    #     --port 12351        
 
     sampleMethod='rbf_marginal_spd'
     workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"

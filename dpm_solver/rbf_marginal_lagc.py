@@ -340,6 +340,7 @@ class RBFSolverMarginalLagC:
                 hist[i+1] = self.model_fn(x_pred, timesteps[i+1])
                 
                 # ===corrector===
+                optimal_log_scales[1, i] = self.log_scale_max
                 x_corr = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas, p=p, beta=0, corrector=True, lagrange=True)
                 x = x_corr
 

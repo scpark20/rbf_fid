@@ -319,6 +319,7 @@ class RBFSolverMarginalLagP:
 
                 target = signal_rates[i+1]*data_target + noise_rates[i+1]*noise_target
                 # ===predictor===
+                optimal_log_scales[0, i] = self.log_scale_max
                 x_pred = self.get_next_sample(x, i, hist, signal_rates, noise_rates, lambdas, p=p, beta=0, corrector=False, lagrange=True)
                 
                 if i == steps - 1:
