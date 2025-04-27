@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 import random
 
-from main import parse_args_and_config, Diffusion
+from scpark.rbf_fid.main import parse_args_and_config, Diffusion
 from datasets import inverse_data_transform
 
 seed = 42

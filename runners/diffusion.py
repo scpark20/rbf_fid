@@ -589,26 +589,29 @@ class Diffusion(object):
                     config.data.image_size,
                     device=self.device,
                 )
+                noise = x
                 
                 if self.config.model.is_upsampling:
                     base_samples = next(base_samples_total)
                 else:
                     base_samples = None
 
-                x, classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples)
-
+                (x, traj), classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
+                
                 if npz:
                     for i in range(len(x)):
                         if classes is None:
                             np.savez_compressed(
                                 os.path.join(self.args.image_folder, f"{img_id}.npz"),
                                 noise=noise[i].cpu(),
+                                traj=traj[:, i].cpu(),
                                 image=x[i].cpu()
                             )
                         else:
                             np.savez_compressed(
                                 os.path.join(self.args.image_folder, f"{img_id}.npz"),
                                 noise=noise[i].cpu(),
+                                traj=traj[:, i].cpu(),
                                 image=x[i].cpu(),
                                 clazz=classes[i].cpu(),
                             )
@@ -687,7 +690,7 @@ class Diffusion(object):
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
-    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, number=0):
+    def sample_image(self, x, model, classes=None, last=True, classifier=None, base_samples=None, target=None, number=0, return_intermediate=False):
         assert last
         try:
             skip = self.args.skip
@@ -760,33 +763,7 @@ class Diffusion(object):
             xs, _ = ddpm_steps(x, seq, model_fn, self.betas, classifier=classifier, is_cond_classifier=self.config.sampling.cond_class, classifier_scale=classifier_scale, **model_kwargs)
             x = xs[-1]
 
-        elif self.args.sample_type in ["dpmsolver", "dpmsolver++",
-                                       'unipc',
-                                       'lagrangesolver',
-                                       'sasolver',
-                                       'rbfsolver',
-                                       'rbfsolvercpdtargetlg',
-                                       'laplacesolver',
-                                       'generalrbfsolver',
-                                       'generalrbfsolvergrad',
-                                       'rbfsolverclosed',
-                                       'rbfsolverclosedsweep',
-                                       'rbfsolverclosedgrad',
-                                       'rbfsolvernumerical',
-                                       'rbfsolvernumericalsweep',
-                                       'rbfsolverquadsweep',
-                                       'rbfsolverquad',
-                                       'rbfsolverglq',
-                                       'rbfsolverglq10',
-                                       'rbfsolverglq10lag',
-                                       'rbfsolverglq10lagtime',
-                                       'rbfsolverglq10laggrid',
-                                       'rbfsolverglq10grad',
-                                       'rbfsolverglq10reg',
-                                       'rbfsolverglq10hist',
-                                       'rbfsolverglq10sepbeta',
-                                       'rbf_ecp_marginal'
-                                       ]:
+        else:
             from dpm_solver.sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
             from dpm_solver.lagrange_solver import LagrangeSolver
             from dpm_solver.sa_solver import SASolver
@@ -809,6 +786,13 @@ class Diffusion(object):
             from dpm_solver.rbf_solver_glq10_hist import RBFSolverGLQ10Hist
             from dpm_solver.rbf_solver_glq10_sepbeta import RBFSolverGLQ10Sepbeta
             from dpm_solver.rbf_ecp_marginal import RBFSolverECPMarginal
+            from dpm_solver.rbf_marginal import RBFSolverMarginal
+            from dpm_solver.rbf_marginal_spd import RBFSolverMarginalSPD
+            from dpm_solver.rbf_marginal_lagp import RBFSolverMarginalLagP
+            from dpm_solver.rbf_marginal_lagc import RBFSolverMarginalLagC
+            from dpm_solver.rbf_marginal_to1 import RBFSolverMarginalTo1
+            from dpm_solver.rbf_marginal_to3 import RBFSolverMarginalTo3
+            from dpm_solver.rbf_ecp_marginal_same import RBFSolverECPMarginalSame
             from dpm_solver.general_rbf_solver import GeneralRBFSolver
             from dpm_solver.general_rbf_solver_grad import GeneralRBFSolverGrad
             from dpm_solver.rbf_solver_cpd_target_lg import RBFSolverCPDTargetLG
@@ -858,6 +842,7 @@ class Diffusion(object):
                     solver_type=self.args.dpm_solver_type,
                     atol=self.args.dpm_solver_atol,
                     rtol=self.args.dpm_solver_rtol,
+                    return_intermediate=return_intermediate
                 )
             if self.args.sample_type in ["lagrangesolver"]:
                 solver = LagrangeSolver(
@@ -1381,6 +1366,49 @@ class Diffusion(object):
                         skip_type=self.args.skip_type,
                     )                
 
+            print(self.args.sample_type)
+            if "marginal" in self.args.sample_type:
+                print('marginal in ', self.args.sample_type)
+                if self.args.sample_type == 'rbf_marginal':
+                    SOLVER = RBFSolverMarginal
+                elif self.args.sample_type == 'rbf_marginal_spd':
+                    SOLVER = RBFSolverMarginalSPD
+                elif self.args.sample_type == 'rbf_marginal_lagp':
+                    SOLVER = RBFSolverMarginalLagP
+                elif self.args.sample_type == 'rbf_marginal_lagc':
+                    SOLVER = RBFSolverMarginalLagC
+                elif self.args.sample_type == 'rbf_marginal_to1':
+                    SOLVER = RBFSolverMarginalTo1
+                elif self.args.sample_type == 'rbf_marginal_to3':
+                    SOLVER = RBFSolverMarginalTo3
+                elif self.args.sample_type == 'rbf_ecp_marginal_same':
+                    SOLVER = RBFSolverECPMarginalSame    
+
+                solver = SOLVER(
+                    model_fn_continuous,
+                    noise_schedule,
+                    algorithm_type=self.args.dpm_solver_type,
+                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+                    scale_dir=self.args.scale_dir,
+                )
+
+                if target is not None:
+                    x = solver.sample_by_target_matching(
+                        x,
+                        target,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,                       
+                        number=number
+                    )
+                else:    
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                    )                
+
             if self.args.sample_type in ["rbfsolverclosedsweep"]:
                 solver = RBFSolverClosedSweep(
                     model_fn_continuous,
@@ -1496,8 +1524,7 @@ class Diffusion(object):
                     log_gamma_max=self.args.log_gamma_max
                 )    
             # x = x.cpu()
-        else:
-            raise NotImplementedError
+        
         return x, classes
 
     def test(self):
