@@ -6,7 +6,7 @@ type="data_prediction"          # dpm_solver_type in diffusion.py
 method="multistep"
 DIS="logSNR"
 
-for steps in 8 10 12 15 20 25 30 35 40
+for steps in 5 6 8 10 12 15 20 25
 do
     sampleMethod='rbf_ecp_marginal'
     workdir="samples/64x64_diffusion/${sampleMethod}_order3_${steps}"
