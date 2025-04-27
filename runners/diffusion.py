@@ -1370,8 +1370,7 @@ class Diffusion(object):
                     )                
 
             print(self.args.sample_type)
-            if "marginal" in self.args.sample_type:
-                print('marginal in ', self.args.sample_type)
+            if "rbf_marginal" in self.args.sample_type:
                 if self.args.sample_type == 'rbf_marginal':
                     SOLVER = RBFSolverMarginal
                 elif self.args.sample_type == 'rbf_marginal_spd':
@@ -1386,7 +1385,7 @@ class Diffusion(object):
                     SOLVER = RBFSolverMarginalTo3
                 elif self.args.sample_type == 'rbf_ecp_marginal_same':
                     SOLVER = RBFSolverECPMarginalSame    
-
+                
                 solver = SOLVER(
                     model_fn_continuous,
                     noise_schedule,
