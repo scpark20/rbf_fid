@@ -596,7 +596,10 @@ class Diffusion(object):
                 else:
                     base_samples = None
 
-                (x, traj), classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
+                if npz:
+                    (x, traj), classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
+                else:
+                    x, classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
                 
                 if npz:
                     for i in range(len(x)):
