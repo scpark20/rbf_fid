@@ -859,7 +859,7 @@ class Diffusion(object):
                     steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
                     order=self.args.dpm_solver_order,
                     skip_type=self.args.skip_type,
-                    return_hist=return_hist,
+                    #return_hist=return_hist,
                 )    
             if self.args.sample_type in ["sasolver"]:
                 solver = SASolver(
