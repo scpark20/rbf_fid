@@ -394,6 +394,8 @@ class RBFSolverECPMarginalSame:
     def load_optimal_log_scales(self, steps, order):
         try:
             load_file = os.path.join(self.scale_dir, f'NFE={steps},p={order}.npz')
+            if not os.path.exists(load_file):
+                load_file = os.path.join(self.scale_dir, f'NFE={steps},p={order},number=0.npz')
             log_scales = np.load(load_file)['optimal_log_scales']
         except:
             return None
