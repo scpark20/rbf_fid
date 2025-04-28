@@ -27,7 +27,26 @@ do
         --dpm_solver_order "${order}" \
         --dpm_solver_method "${method}" \
         --dpm_solver_type "${type}" \
-        --port 12351     
+        --port 12351   
+
+    # 실험 결과를 저장할 디렉토리(workdir)
+    sampleMethod='unipc'
+    workdir="samples/64x64_diffusion/${sampleMethod}_order${order}_${steps}"
+    echo "===== Running with order=${order}, steps=${steps} ====="
+    CUDA_VISIBLE_DEVICES="${DEVICES}" python main.py \
+        --config "${data}.yml" \
+        --exp "${workdir}" \
+        --sample \
+        --fid \
+        --timesteps "${steps}" \
+        --eta 0 \
+        --ni \
+        --skip_type "${DIS}" \
+        --sample_type "${sampleMethod}" \
+        --dpm_solver_order "${order}" \
+        --dpm_solver_method "${method}" \
+        --dpm_solver_type "${type}" \
+        --port 12351
 
 done
 done
