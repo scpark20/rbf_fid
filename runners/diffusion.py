@@ -1348,31 +1348,31 @@ class Diffusion(object):
                         log_scale=self.args.log_scale,
                     )                
 
-            if self.args.sample_type in ["rbf_ecp_marginal"]:
-                solver = RBFSolverECPMarginal(
-                    model_fn_continuous,
-                    noise_schedule,
-                    algorithm_type=self.args.dpm_solver_type,
-                    correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
-                    scale_dir=self.args.scale_dir,
-                )
+            # if self.args.sample_type in ["rbf_ecp_marginal"]:
+            #     solver = RBFSolverECPMarginal(
+            #         model_fn_continuous,
+            #         noise_schedule,
+            #         algorithm_type=self.args.dpm_solver_type,
+            #         correcting_x0_fn="dynamic_thresholding" if self.args.thresholding else None,
+            #         scale_dir=self.args.scale_dir,
+            #     )
 
-                if target is not None:
-                    x = solver.sample_by_target_matching(
-                        x,
-                        target,
-                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
-                        order=self.args.dpm_solver_order,
-                        skip_type=self.args.skip_type,                       
-                        number=number
-                    )
-                else:    
-                    x = solver.sample(
-                        x,
-                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
-                        order=self.args.dpm_solver_order,
-                        skip_type=self.args.skip_type,
-                    )                
+            #     if target is not None:
+            #         x = solver.sample_by_target_matching(
+            #             x,
+            #             target,
+            #             steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+            #             order=self.args.dpm_solver_order,
+            #             skip_type=self.args.skip_type,                       
+            #             number=number
+            #         )
+            #     else:    
+            #         x = solver.sample(
+            #             x,
+            #             steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+            #             order=self.args.dpm_solver_order,
+            #             skip_type=self.args.skip_type,
+            #         )                
 
             print(self.args.sample_type)
             if "rbf_marginal" in self.args.sample_type:
