@@ -439,7 +439,7 @@ class RBFSolverECPMarginal:
             hist[0] = self.model_fn(x, timesteps[0])   # model(x,t) 평가값을 저장
             
             for i in range(0, steps):
-                if lower_order_final:
+                if i >= order and lower_order_final:
                     p = min(i+1, steps - i, order)
                 else:
                     p = min(i+1, order)
