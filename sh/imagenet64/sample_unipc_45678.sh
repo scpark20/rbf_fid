@@ -6,9 +6,9 @@ type="data_prediction"          # dpm_solver_type in diffusion.py
 method="multistep"
 DIS="logSNR"
 
-for order in 4 5 6 7 8
+for order in 6
 do
-for steps in 5 6 8 10 12 15 20 25 30 35 40
+for steps in 5
 do
     # 실험 결과를 저장할 디렉토리(workdir)
     sampleMethod='unipc'
