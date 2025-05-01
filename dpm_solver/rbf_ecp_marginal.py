@@ -342,7 +342,7 @@ class RBFSolverECPMarginal:
             x_pred = x
             p_prev = None
             for i in range(0, steps):
-                if lower_order_final:
+                if i >= order and lower_order_final:
                     p = min(i+1, steps - i, order)
                 else:
                     p = min(i+1, order)
