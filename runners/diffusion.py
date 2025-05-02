@@ -597,9 +597,9 @@ class Diffusion(object):
                     base_samples = None
 
                 if npz:
-                    (x, traj), classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
+                    (x, traj, timesteps), classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=True)
                 else:
-                    x, classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples, return_intermediate=npz)
+                    x, classes = self.sample_image(x, model, classifier=classifier, base_samples=base_samples)
                 
                 if npz:
                     for i in range(len(x)):
@@ -608,6 +608,7 @@ class Diffusion(object):
                                 os.path.join(self.args.image_folder, f"{img_id}.npz"),
                                 noise=noise[i].cpu(),
                                 traj=traj[:, i].cpu(),
+                                timesteps=timesteps.cpu(),
                                 image=x[i].cpu()
                             )
                         else:
@@ -615,6 +616,7 @@ class Diffusion(object):
                                 os.path.join(self.args.image_folder, f"{img_id}.npz"),
                                 noise=noise[i].cpu(),
                                 traj=traj[:, i].cpu(),
+                                timesteps=timesteps.cpu(),
                                 image=x[i].cpu(),
                                 clazz=classes[i].cpu(),
                             )
@@ -805,6 +807,7 @@ class Diffusion(object):
             from dpm_solver.general_rbf_solver_grad import GeneralRBFSolverGrad
             from dpm_solver.rbf_solver_cpd_target_lg import RBFSolverCPDTargetLG
             from dpm_solver.laplace_solver import LaplaceSolver
+            from dpm_solver.dc_solver import DCSolver
             def model_fn(x, t, **model_kwargs):
                 out = model(x, t, **model_kwargs)
                 # If the model outputs both 'mean' and 'variance' (such as improved-DDPM and guided-diffusion),
@@ -895,6 +898,32 @@ class Diffusion(object):
                     order=self.args.dpm_solver_order,
                     skip_type=self.args.skip_type,
                 )   
+
+            if self.args.sample_type in ["dcsolver"]:
+                solver = DCSolver(
+                    model_fn_continuous,
+                    noise_schedule,
+                    dc_dir=self.args.dc_dir
+                )
+                if target is not None:
+                    solver.ref_ts = target[1]
+                    solver.ref_xs = target[0]
+                    x = solver.search_dc(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        method='multistep',
+                    )
+
+                else:
+                    x = solver.sample(
+                        x,
+                        steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                        order=self.args.dpm_solver_order,
+                        skip_type=self.args.skip_type,
+                        method='multistep',
+                    )   
             if self.args.sample_type in ["rbfsolver"]:
                 solver = RBFSolver(
                     model_fn_continuous,

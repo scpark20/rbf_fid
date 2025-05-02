@@ -67,6 +67,13 @@ def parse_args_and_config():
         default=None,
         help="dir to load scale",
     )
+
+    parser.add_argument(
+        "--dc_dir",
+        type=str,
+        default=None,
+        help="dir to load dc",
+    )
     parser.add_argument(
         "--ni",
         action="store_true",

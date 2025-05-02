@@ -1241,7 +1241,7 @@ class DPM_Solver:
                     intermediates.append(x)
         if return_intermediate:
             intermediates = torch.stack(intermediates)
-            return x, intermediates
+            return x, intermediates, timesteps
         else:
             return x
 
